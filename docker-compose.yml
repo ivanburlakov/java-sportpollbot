@@ -1,0 +1,25 @@
+services:
+  sportpoll-bot:
+    build:
+      context: .
+      network: host
+    container_name: java-sportpoll-bot
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - ADMIN_USER_IDS=${ADMIN_USER_IDS}
+      - TARGET_GROUP_CHAT_ID=${TARGET_GROUP_CHAT_ID}
+      - LOG_LEVEL=${LOG_LEVEL}
+      - BOT_DATABASE_DIR=${BOT_DATABASE_DIR:-/app/data}
+    volumes:
+      - bot-data:/app/data
+    restart: unless-stopped
+    networks:
+      - bot-network
+
+volumes:
+  bot-data:
+
+
+networks:
+  bot-network:
+    driver: bridge

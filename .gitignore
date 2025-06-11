@@ -1,0 +1,55 @@
+# Environment variables
+.env
+.env.dev
+.env.prod
+.env.test
+.env.tester
+
+# Database files
+data/
+*Bot_*
+*.wal.*
+
+# Maven
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.project
+.classpath
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+.direnv/
+.vscode/
+.idea/
+terraform/
+data/
+temp/
+.envrc
+
+flake.lock
+flake.nix
+
+#scripts
+*.sh
