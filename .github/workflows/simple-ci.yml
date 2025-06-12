@@ -1,0 +1,60 @@
+name: Simple CI Tests
+
+on:
+  push:
+    branches: [ main, dev ]
+  pull_request:
+    branches: [ main, dev ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+        
+    - name: Cache Maven dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-m2
+        
+    - name: Run tests with coverage
+      run: mvn clean test jacoco:report
+      
+    - name: Display test results
+      if: always()
+      run: |
+        echo "=== TEST RESULTS ==="
+        find target/surefire-reports -name "*.xml" -exec grep -h "testsuite.*tests=" {} \; | \
+        sed 's/.*tests="\([0-9]*\)".*errors="\([0-9]*\)".*skipped="\([0-9]*\)".*failures="\([0-9]*\)".*/\1 \4 \2 \3/' | \
+        awk '{tests+=$1; failures+=$2; errors+=$3; skipped+=$4} 
+        END {printf "Tests: %d | Passed: %d | Failed: %d | Errors: %d | Skipped: %d\n", 
+        tests, tests-failures-errors-skipped, failures, errors, skipped}'
+        
+    - name: Display coverage summary
+      if: always()
+      run: |
+        echo "=== COVERAGE SUMMARY ==="
+        if [ -f target/site/jacoco/jacoco.csv ]; then
+          tail -n 1 target/site/jacoco/jacoco.csv | \
+          awk -F',' '{
+            instr_total = $4 + $5; 
+            branch_total = $6 + $7; 
+            line_total = $8 + $9;
+            if(instr_total > 0) printf "Instructions: %.1f%% (%d/%d)\n", ($5*100/instr_total), $5, instr_total;
+            if(branch_total > 0) printf "Branches: %.1f%% (%d/%d)\n", ($7*100/branch_total), $7, branch_total;
+            if(line_total > 0) printf "Lines: %.1f%% (%d/%d)\n", ($9*100/line_total), $9, line_total;
+          }'
+        else
+          echo "Coverage report not found"
+        fi
