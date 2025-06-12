@@ -1,20 +1,36 @@
 package io.sportpoll.bot.unit.services;
 
+import java.util.List;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.MockitoAnnotations;
+import org.telegram.telegrambots.meta.api.methods.pinnedmessages.PinChatMessage;
+import org.telegram.telegrambots.meta.api.methods.pinnedmessages.UnpinChatMessage;
+import org.telegram.telegrambots.meta.api.methods.polls.SendPoll;
+import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
+import org.telegram.telegrambots.meta.api.objects.User;
 import org.telegram.telegrambots.meta.api.objects.message.Message;
+import org.telegram.telegrambots.meta.api.objects.polls.PollAnswer;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import org.telegram.telegrambots.meta.generics.TelegramClient;
+
 import io.sportpoll.bot.config.Config;
 import io.sportpoll.bot.services.PollManager;
 import io.sportpoll.bot.services.TelegramClientService;
 import io.sportpoll.bot.unit.utils.TestUtils;
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
+
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.when;
 
 public class PollManagerTest {
     @Mock
@@ -29,106 +45,53 @@ public class PollManagerTest {
     }
 
     @Test
-    void testPollCreationAndVoting() throws TelegramApiException {
-        try (MockedStatic<TelegramClientService> mockedStatic = mockStatic(TelegramClientService.class)) {
-            // Mock Telegram client service for API calls
-            mockedStatic.when(TelegramClientService::getInstance).thenReturn(telegramClient);
-            Message mockMessage = mock(Message.class);
-            when(mockMessage.getMessageId()).thenReturn(123);
-            // Mock successful message sending and poll posting
-            when(telegramClient.execute(any(org.telegram.telegrambots.meta.api.methods.send.SendMessage.class)))
-                .thenReturn(mockMessage);
-            when(telegramClient.execute(any(org.telegram.telegrambots.meta.api.methods.polls.SendPoll.class)))
-                .thenReturn(mockMessage);
-            when(telegramClient
-                .execute(any(org.telegram.telegrambots.meta.api.methods.pinnedmessages.PinChatMessage.class)))
-                    .thenReturn(true);
+    void testPollCreationAndVoting() throws Exception {
+        TestUtils.executeWithTelegramMock(setup -> {
+            TestUtils.pollBuilder().withVoteLimit(5).createPoll(pollManager);
 
-            // Create poll with 5 vote limit
+            TestUtils.assertPollState(pollManager, true, 0);
+
             Update update = TestUtils.createMockUpdate("test", -1001234567890L, 123456789L);
-            pollManager.createAndPostPoll("Test question", "Yes", "No", 5, update);
-            // Verify poll is active
-            assertTrue(pollManager.hasActivePoll());
-            // Add single external vote
             pollManager.addExternalVote(null, 1, update);
-            // Verify vote was counted
-            assertEquals(1, pollManager.getPositiveVotes());
-        }
+
+            TestUtils.assertPollState(pollManager, true, 1);
+        });
     }
 
     @Test
-    void testVoteLimitEnforcement() throws TelegramApiException {
-        try (MockedStatic<TelegramClientService> mockedStatic = mockStatic(TelegramClientService.class)) {
-            // Setup Telegram service mocks
-            mockedStatic.when(TelegramClientService::getInstance).thenReturn(telegramClient);
-            Message mockMessage = mock(Message.class);
-            when(mockMessage.getMessageId()).thenReturn(123);
-            when(telegramClient.execute(any(org.telegram.telegrambots.meta.api.methods.send.SendMessage.class)))
-                .thenReturn(mockMessage);
-            when(telegramClient.execute(any(org.telegram.telegrambots.meta.api.methods.polls.SendPoll.class)))
-                .thenReturn(mockMessage);
-            when(telegramClient
-                .execute(any(org.telegram.telegrambots.meta.api.methods.pinnedmessages.PinChatMessage.class)))
-                    .thenReturn(true);
+    void testVoteLimitEnforcement() throws Exception {
+        TestUtils.executeWithTelegramMock(setup -> {
+            TestUtils.pollBuilder().withVoteLimit(3).createPoll(pollManager);
 
-            // Create poll with 3-vote limit
             Update update = TestUtils.createMockUpdate("test", -1001234567890L, 123456789L);
-            pollManager.createAndPostPoll("Test question", "Yes", "No", 3, update);
-            // Try adding 4 votes (exceeds limit)
             pollManager.addExternalVote(null, 4, update);
-            // Verify all votes rejected due to limit breach
-            assertEquals(0, pollManager.getPositiveVotes());
-        }
+
+            TestUtils.assertPollState(pollManager, true, 0);
+        });
     }
 
     @Test
-    void testNamedVotes() throws TelegramApiException {
-        try (MockedStatic<TelegramClientService> mockedStatic = mockStatic(TelegramClientService.class)) {
-            // Setup mock Telegram responses
-            mockedStatic.when(TelegramClientService::getInstance).thenReturn(telegramClient);
-            Message mockMessage = mock(Message.class);
-            when(mockMessage.getMessageId()).thenReturn(123);
-            when(telegramClient.execute(any(org.telegram.telegrambots.meta.api.methods.send.SendMessage.class)))
-                .thenReturn(mockMessage);
-            when(telegramClient.execute(any(org.telegram.telegrambots.meta.api.methods.polls.SendPoll.class)))
-                .thenReturn(mockMessage);
-            when(telegramClient
-                .execute(any(org.telegram.telegrambots.meta.api.methods.pinnedmessages.PinChatMessage.class)))
-                    .thenReturn(true);
+    void testNamedVotes() throws Exception {
+        TestUtils.executeWithTelegramMock(setup -> {
+            TestUtils.pollBuilder().withVoteLimit(5).createPoll(pollManager);
 
-            // Create poll and add named votes
             Update update = TestUtils.createMockUpdate("test", -1001234567890L, 123456789L);
-            pollManager.createAndPostPoll("Test question", "Yes", "No", 5, update);
-            // Add 2 named votes for John and Jane
             pollManager.addExternalVote(new String[] { "John", "Jane" }, 2, update);
-            // Verify vote count matches names provided
-            assertEquals(2, pollManager.getPositiveVotes());
-        }
+
+            TestUtils.assertPollState(pollManager, true, 2);
+        });
     }
 
     @Test
-    void testHandleVoteCommand() throws TelegramApiException {
-        try (MockedStatic<TelegramClientService> mockedStatic = mockStatic(TelegramClientService.class)) {
-            // Setup mock services
-            mockedStatic.when(TelegramClientService::getInstance).thenReturn(telegramClient);
-            Message mockMessage = mock(Message.class);
-            when(mockMessage.getMessageId()).thenReturn(123);
-            when(telegramClient.execute(any(org.telegram.telegrambots.meta.api.methods.send.SendMessage.class)))
-                .thenReturn(mockMessage);
-            when(telegramClient.execute(any(org.telegram.telegrambots.meta.api.methods.polls.SendPoll.class)))
-                .thenReturn(mockMessage);
-            when(telegramClient
-                .execute(any(org.telegram.telegrambots.meta.api.methods.pinnedmessages.PinChatMessage.class)))
-                    .thenReturn(true);
+    void testHandleVoteCommand() throws Exception {
+        TestUtils.executeWithTelegramMock(setup -> {
+            TestUtils.pollBuilder().withVoteLimit(5).createPoll(pollManager);
 
-            // Create poll and handle basic /+ command
             Update update = TestUtils.createMockUpdate("/+", -1001234567890L, 123456789L);
-            pollManager.createAndPostPoll("Test question", "Yes", "No", 5, update);
-            // Process single positive vote command
             pollManager.handleVoteCommand(update);
-            // Verify vote registered
-            assertEquals(1, pollManager.getPositiveVotes());
-        }
+
+            TestUtils.assertPollState(pollManager, true, 1);
+        });
     }
 
     @Test
@@ -138,13 +101,9 @@ public class PollManagerTest {
             mockedStatic.when(TelegramClientService::getInstance).thenReturn(telegramClient);
             Message mockMessage = mock(Message.class);
             when(mockMessage.getMessageId()).thenReturn(123);
-            when(telegramClient.execute(any(org.telegram.telegrambots.meta.api.methods.send.SendMessage.class)))
-                .thenReturn(mockMessage);
-            when(telegramClient.execute(any(org.telegram.telegrambots.meta.api.methods.polls.SendPoll.class)))
-                .thenReturn(mockMessage);
-            when(telegramClient
-                .execute(any(org.telegram.telegrambots.meta.api.methods.pinnedmessages.PinChatMessage.class)))
-                    .thenReturn(true);
+            when(telegramClient.execute(any(SendMessage.class))).thenReturn(mockMessage);
+            when(telegramClient.execute(any(SendPoll.class))).thenReturn(mockMessage);
+            when(telegramClient.execute(any(PinChatMessage.class))).thenReturn(true);
 
             // Create poll and add vote
             Update update = TestUtils.createMockUpdate("/-", -1001234567890L, 123456789L);
@@ -160,18 +119,12 @@ public class PollManagerTest {
     }
 
     @Test
-    void testVoteCommandWithNoActivePoll() throws TelegramApiException {
-        try (MockedStatic<TelegramClientService> mockedStatic = mockStatic(TelegramClientService.class)) {
-            // Setup minimal mocks for no-poll scenario
-            mockedStatic.when(TelegramClientService::getInstance).thenReturn(telegramClient);
-            when(telegramClient.execute(any(org.telegram.telegrambots.meta.api.methods.send.SendMessage.class)))
-                .thenReturn(mock(Message.class));
-
-            // Try voting when no poll exists
+    void testVoteCommandWithNoActivePoll() throws Exception {
+        TestUtils.executeWithTelegramMock(setup -> {
             Update update = TestUtils.createMockUpdate("/+", -1001234567890L, 123456789L);
-            // Verify operation completes without errors
-            assertDoesNotThrow(() -> pollManager.handleVoteCommand(update));
-        }
+
+            TestUtils.assertNoErrorsThrowable(() -> pollManager.handleVoteCommand(update));
+        });
     }
 
     @Test
@@ -181,16 +134,10 @@ public class PollManagerTest {
             mockedStatic.when(TelegramClientService::getInstance).thenReturn(telegramClient);
             Message mockMessage = mock(Message.class);
             when(mockMessage.getMessageId()).thenReturn(123);
-            when(telegramClient.execute(any(org.telegram.telegrambots.meta.api.methods.send.SendMessage.class)))
-                .thenReturn(mockMessage);
-            when(telegramClient.execute(any(org.telegram.telegrambots.meta.api.methods.polls.SendPoll.class)))
-                .thenReturn(mockMessage);
-            when(telegramClient
-                .execute(any(org.telegram.telegrambots.meta.api.methods.pinnedmessages.PinChatMessage.class)))
-                    .thenReturn(true);
-            when(telegramClient
-                .execute(any(org.telegram.telegrambots.meta.api.methods.pinnedmessages.UnpinChatMessage.class)))
-                    .thenReturn(true);
+            when(telegramClient.execute(any(SendMessage.class))).thenReturn(mockMessage);
+            when(telegramClient.execute(any(SendPoll.class))).thenReturn(mockMessage);
+            when(telegramClient.execute(any(PinChatMessage.class))).thenReturn(true);
+            when(telegramClient.execute(any(UnpinChatMessage.class))).thenReturn(true);
 
             // Create active poll
             Update update = TestUtils.createMockUpdate("test", -1001234567890L, 123456789L);
@@ -211,13 +158,9 @@ public class PollManagerTest {
             mockedStatic.when(TelegramClientService::getInstance).thenReturn(telegramClient);
             Message mockMessage = mock(Message.class);
             when(mockMessage.getMessageId()).thenReturn(123);
-            when(telegramClient.execute(any(org.telegram.telegrambots.meta.api.methods.send.SendMessage.class)))
-                .thenReturn(mockMessage);
-            when(telegramClient.execute(any(org.telegram.telegrambots.meta.api.methods.polls.SendPoll.class)))
-                .thenReturn(mockMessage);
-            when(telegramClient
-                .execute(any(org.telegram.telegrambots.meta.api.methods.pinnedmessages.PinChatMessage.class)))
-                    .thenReturn(true);
+            when(telegramClient.execute(any(SendMessage.class))).thenReturn(mockMessage);
+            when(telegramClient.execute(any(SendPoll.class))).thenReturn(mockMessage);
+            when(telegramClient.execute(any(PinChatMessage.class))).thenReturn(true);
 
             // Create poll and add multiple votes
             Update update = TestUtils.createMockUpdate("/-", -1001234567890L, 123456789L);
@@ -241,13 +184,9 @@ public class PollManagerTest {
             mockedStatic.when(TelegramClientService::getInstance).thenReturn(telegramClient);
             Message mockMessage = mock(Message.class);
             when(mockMessage.getMessageId()).thenReturn(123);
-            when(telegramClient.execute(any(org.telegram.telegrambots.meta.api.methods.send.SendMessage.class)))
-                .thenReturn(mockMessage);
-            when(telegramClient.execute(any(org.telegram.telegrambots.meta.api.methods.polls.SendPoll.class)))
-                .thenReturn(mockMessage);
-            when(telegramClient
-                .execute(any(org.telegram.telegrambots.meta.api.methods.pinnedmessages.PinChatMessage.class)))
-                    .thenReturn(true);
+            when(telegramClient.execute(any(SendMessage.class))).thenReturn(mockMessage);
+            when(telegramClient.execute(any(SendPoll.class))).thenReturn(mockMessage);
+            when(telegramClient.execute(any(PinChatMessage.class))).thenReturn(true);
 
             // Create poll with single vote
             Update update = TestUtils.createMockUpdate("test", -1001234567890L, 123456789L);
@@ -269,13 +208,9 @@ public class PollManagerTest {
             mockedStatic.when(TelegramClientService::getInstance).thenReturn(telegramClient);
             Message mockMessage = mock(Message.class);
             when(mockMessage.getMessageId()).thenReturn(123);
-            when(telegramClient.execute(any(org.telegram.telegrambots.meta.api.methods.send.SendMessage.class)))
-                .thenReturn(mockMessage);
-            when(telegramClient.execute(any(org.telegram.telegrambots.meta.api.methods.polls.SendPoll.class)))
-                .thenReturn(mockMessage);
-            when(telegramClient
-                .execute(any(org.telegram.telegrambots.meta.api.methods.pinnedmessages.PinChatMessage.class)))
-                    .thenReturn(true);
+            when(telegramClient.execute(any(SendMessage.class))).thenReturn(mockMessage);
+            when(telegramClient.execute(any(SendPoll.class))).thenReturn(mockMessage);
+            when(telegramClient.execute(any(PinChatMessage.class))).thenReturn(true);
 
             // Initialize poll for direct voting
             pollManager.initializePoll(5, 123);
@@ -299,13 +234,9 @@ public class PollManagerTest {
             mockedStatic.when(TelegramClientService::getInstance).thenReturn(telegramClient);
             Message mockMessage = mock(Message.class);
             when(mockMessage.getMessageId()).thenReturn(123);
-            when(telegramClient.execute(any(org.telegram.telegrambots.meta.api.methods.send.SendMessage.class)))
-                .thenReturn(mockMessage);
-            when(telegramClient.execute(any(org.telegram.telegrambots.meta.api.methods.polls.SendPoll.class)))
-                .thenReturn(mockMessage);
-            when(telegramClient
-                .execute(any(org.telegram.telegrambots.meta.api.methods.pinnedmessages.PinChatMessage.class)))
-                    .thenReturn(true);
+            when(telegramClient.execute(any(SendMessage.class))).thenReturn(mockMessage);
+            when(telegramClient.execute(any(SendPoll.class))).thenReturn(mockMessage);
+            when(telegramClient.execute(any(PinChatMessage.class))).thenReturn(true);
 
             // Initialize poll for direct voting
             pollManager.initializePoll(5, 123);
@@ -328,13 +259,9 @@ public class PollManagerTest {
             mockedStatic.when(TelegramClientService::getInstance).thenReturn(telegramClient);
             Message mockMessage = mock(Message.class);
             when(mockMessage.getMessageId()).thenReturn(123);
-            when(telegramClient.execute(any(org.telegram.telegrambots.meta.api.methods.send.SendMessage.class)))
-                .thenReturn(mockMessage);
-            when(telegramClient.execute(any(org.telegram.telegrambots.meta.api.methods.polls.SendPoll.class)))
-                .thenReturn(mockMessage);
-            when(telegramClient
-                .execute(any(org.telegram.telegrambots.meta.api.methods.pinnedmessages.PinChatMessage.class)))
-                    .thenReturn(true);
+            when(telegramClient.execute(any(SendMessage.class))).thenReturn(mockMessage);
+            when(telegramClient.execute(any(SendPoll.class))).thenReturn(mockMessage);
+            when(telegramClient.execute(any(PinChatMessage.class))).thenReturn(true);
 
             // Create poll as non-admin user
             Update nonAdminUpdate = TestUtils.createMockUpdate("test", -1001234567890L, 999999999L);
@@ -358,13 +285,9 @@ public class PollManagerTest {
             mockedStatic.when(TelegramClientService::getInstance).thenReturn(telegramClient);
             Message mockMessage = mock(Message.class);
             when(mockMessage.getMessageId()).thenReturn(123);
-            when(telegramClient.execute(any(org.telegram.telegrambots.meta.api.methods.send.SendMessage.class)))
-                .thenReturn(mockMessage);
-            when(telegramClient.execute(any(org.telegram.telegrambots.meta.api.methods.polls.SendPoll.class)))
-                .thenReturn(mockMessage);
-            when(telegramClient
-                .execute(any(org.telegram.telegrambots.meta.api.methods.pinnedmessages.PinChatMessage.class)))
-                    .thenReturn(true);
+            when(telegramClient.execute(any(SendMessage.class))).thenReturn(mockMessage);
+            when(telegramClient.execute(any(SendPoll.class))).thenReturn(mockMessage);
+            when(telegramClient.execute(any(PinChatMessage.class))).thenReturn(true);
 
             // Create poll and vote with multiple named arguments
             Update update = TestUtils.createMockUpdate("/+ John Jane Bob", -1001234567890L, 123456789L);
@@ -383,13 +306,9 @@ public class PollManagerTest {
             mockedStatic.when(TelegramClientService::getInstance).thenReturn(telegramClient);
             Message mockMessage = mock(Message.class);
             when(mockMessage.getMessageId()).thenReturn(123);
-            when(telegramClient.execute(any(org.telegram.telegrambots.meta.api.methods.send.SendMessage.class)))
-                .thenReturn(mockMessage);
-            when(telegramClient.execute(any(org.telegram.telegrambots.meta.api.methods.polls.SendPoll.class)))
-                .thenReturn(mockMessage);
-            when(telegramClient
-                .execute(any(org.telegram.telegrambots.meta.api.methods.pinnedmessages.PinChatMessage.class)))
-                    .thenReturn(true);
+            when(telegramClient.execute(any(SendMessage.class))).thenReturn(mockMessage);
+            when(telegramClient.execute(any(SendPoll.class))).thenReturn(mockMessage);
+            when(telegramClient.execute(any(PinChatMessage.class))).thenReturn(true);
 
             // Create poll and vote with numeric argument
             Update update = TestUtils.createMockUpdate("/+ 3", -1001234567890L, 123456789L);
@@ -398,6 +317,90 @@ public class PollManagerTest {
             pollManager.handleVoteCommand(update);
             // Verify 3 anonymous votes added
             assertEquals(3, pollManager.getPositiveVotes());
+        }
+    }
+
+    @Test
+    void testHandleNegativeDirectVote() throws TelegramApiException {
+        try (MockedStatic<TelegramClientService> mockedStatic = mockStatic(TelegramClientService.class)) {
+            mockedStatic.when(TelegramClientService::getInstance).thenReturn(telegramClient);
+            Message mockMessage = mock(Message.class);
+            when(mockMessage.getMessageId()).thenReturn(123);
+            when(telegramClient.execute(any(SendMessage.class))).thenReturn(mockMessage);
+            when(telegramClient.execute(any(SendPoll.class))).thenReturn(mockMessage);
+            when(telegramClient.execute(any(PinChatMessage.class))).thenReturn(true);
+
+            pollManager.initializePoll(5, 123);
+            Update positiveVoteUpdate = TestUtils.createMockDirectVoteUpdate(123456789L, "PositiveUser", 0);
+            pollManager.handleDirectVote(positiveVoteUpdate);
+            assertEquals(1, pollManager.getPositiveVotes());
+            Update negativeVoteUpdate = TestUtils.createMockDirectVoteUpdate(987654321L, "NegativeUser", 1);
+            pollManager.handleDirectVote(negativeVoteUpdate);
+            assertEquals(1, pollManager.getPositiveVotes());
+            Update anotherNegativeVote = TestUtils.createMockDirectVoteUpdate(555666777L, "AnotherNegUser", 1);
+            pollManager.handleDirectVote(anotherNegativeVote);
+            assertEquals(1, pollManager.getPositiveVotes());
+            Update anotherPositiveVote = TestUtils.createMockDirectVoteUpdate(888999000L, "AnotherPosUser", 0);
+            pollManager.handleDirectVote(anotherPositiveVote);
+            assertEquals(2, pollManager.getPositiveVotes());
+        }
+    }
+
+    @Test
+    void testDirectVoteSwitchingBetweenOptions() throws TelegramApiException {
+        try (MockedStatic<TelegramClientService> mockedStatic = mockStatic(TelegramClientService.class)) {
+            mockedStatic.when(TelegramClientService::getInstance).thenReturn(telegramClient);
+            Message mockMessage = mock(Message.class);
+            when(mockMessage.getMessageId()).thenReturn(123);
+            when(telegramClient.execute(any(SendMessage.class))).thenReturn(mockMessage);
+            when(telegramClient.execute(any(SendPoll.class))).thenReturn(mockMessage);
+            when(telegramClient.execute(any(PinChatMessage.class))).thenReturn(true);
+
+            pollManager.initializePoll(5, 123);
+
+            User mockUser = mock(User.class);
+            when(mockUser.getId()).thenReturn(123456789L);
+            when(mockUser.getFirstName()).thenReturn("TestUser");
+
+            Update initialPositiveVote = mock(Update.class);
+            PollAnswer pollAnswer1 = mock(PollAnswer.class);
+            when(initialPositiveVote.hasPollAnswer()).thenReturn(true);
+            when(initialPositiveVote.getPollAnswer()).thenReturn(pollAnswer1);
+            when(pollAnswer1.getUser()).thenReturn(mockUser);
+            when(pollAnswer1.getOptionIds()).thenReturn(List.of(0));
+
+            pollManager.handleDirectVote(initialPositiveVote);
+            assertEquals(1, pollManager.getPositiveVotes());
+
+            Update switchToNegative = mock(Update.class);
+            PollAnswer pollAnswer2 = mock(PollAnswer.class);
+            when(switchToNegative.hasPollAnswer()).thenReturn(true);
+            when(switchToNegative.getPollAnswer()).thenReturn(pollAnswer2);
+            when(pollAnswer2.getUser()).thenReturn(mockUser);
+            when(pollAnswer2.getOptionIds()).thenReturn(List.of(1));
+
+            pollManager.handleDirectVote(switchToNegative);
+            assertEquals(0, pollManager.getPositiveVotes());
+
+            Update switchBackToPositive = mock(Update.class);
+            PollAnswer pollAnswer3 = mock(PollAnswer.class);
+            when(switchBackToPositive.hasPollAnswer()).thenReturn(true);
+            when(switchBackToPositive.getPollAnswer()).thenReturn(pollAnswer3);
+            when(pollAnswer3.getUser()).thenReturn(mockUser);
+            when(pollAnswer3.getOptionIds()).thenReturn(List.of(0));
+
+            pollManager.handleDirectVote(switchBackToPositive);
+            assertEquals(1, pollManager.getPositiveVotes());
+
+            Update removeVote = mock(Update.class);
+            PollAnswer pollAnswer4 = mock(PollAnswer.class);
+            when(removeVote.hasPollAnswer()).thenReturn(true);
+            when(removeVote.getPollAnswer()).thenReturn(pollAnswer4);
+            when(pollAnswer4.getUser()).thenReturn(mockUser);
+            when(pollAnswer4.getOptionIds()).thenReturn(List.of());
+
+            pollManager.handleDirectVote(removeVote);
+            assertEquals(0, pollManager.getPositiveVotes());
         }
     }
 }

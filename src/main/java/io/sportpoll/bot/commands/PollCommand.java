@@ -38,14 +38,11 @@ public class PollCommand {
             var result = sendPoll(question, positiveOption, negativeOption);
             if (result.success()) {
                 pollManager.initializePoll(targetVotes, result.messageId());
-                System.out.println("Poll created successfully: " + question);
                 return PollCreationResult.success("Poll created successfully", result.messageId());
             } else {
-                System.err.println("Failed to send poll: " + result.message());
                 return PollCreationResult.error(result.message());
             }
         } catch (Exception e) {
-            System.err.println("Exception in createPoll: " + e.getMessage());
             return PollCreationResult.error("Failed to create poll: " + e.getMessage());
         }
     }

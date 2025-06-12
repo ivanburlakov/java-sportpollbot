@@ -18,9 +18,8 @@ public class WeeklyPollScheduler implements Serializable {
     private transient WeeklyPollConfig config;
     private transient PollManager pollManager;
     private transient ScheduledExecutorService scheduler;
-    private transient Supplier<Integer> randomSegmentProvider;
+    private transient Supplier<Double> randomProvider;
     private transient Supplier<LocalDateTime> timeProvider;
-    private int totalRandomSegments = 10;
     private Duration randomWindow = Duration.ofHours(1);
 
     public WeeklyPollScheduler() {
@@ -28,12 +27,11 @@ public class WeeklyPollScheduler implements Serializable {
     }
 
     public WeeklyPollScheduler(WeeklyPollConfig config, PollManager pollManager, Supplier<LocalDateTime> timeProvider,
-        Supplier<Integer> randomSegmentProvider, ScheduledExecutorService scheduler) {
+        Supplier<Double> randomProvider, ScheduledExecutorService scheduler) {
         this.config = config;
         this.pollManager = pollManager;
         this.timeProvider = timeProvider != null ? timeProvider : () -> LocalDateTime.now();
-        this.randomSegmentProvider = randomSegmentProvider != null ? randomSegmentProvider
-            : () -> ThreadLocalRandom.current().nextInt(0, totalRandomSegments);
+        this.randomProvider = randomProvider != null ? randomProvider : () -> ThreadLocalRandom.current().nextDouble();
         this.scheduler = scheduler != null ? scheduler : Executors.newScheduledThreadPool(1);
     }
 
@@ -46,8 +44,8 @@ public class WeeklyPollScheduler implements Serializable {
         return config;
     }
 
-    public void setRandomSegmentProvider(Supplier<Integer> provider) {
-        randomSegmentProvider = provider;
+    public void setRandomProvider(Supplier<Double> provider) {
+        randomProvider = provider;
     }
     public void setTimeProvider(Supplier<LocalDateTime> provider) {
         timeProvider = provider;
@@ -55,12 +53,11 @@ public class WeeklyPollScheduler implements Serializable {
     public void setRandomWindow(Duration window) {
         randomWindow = window;
     }
-    public void setTotalRandomSegments(int segments) {
-        totalRandomSegments = segments;
-    }
 
     private PollManager getPollManager() {
         if (pollManager == null) pollManager = DataStore.getInstance().get(PollManager.class);
+        System.out.println("WeeklyPollScheduler.getPollManager: returning " + pollManager + " (hasActivePoll: "
+            + pollManager.hasActivePoll() + ")");
         return pollManager;
     }
 
@@ -89,7 +86,24 @@ public class WeeklyPollScheduler implements Serializable {
     }
 
     public void runScheduledPollCheck() {
-        if (getConfig().isEnabled() && !getPollManager().hasActivePoll()) createWeeklyPoll();
+        if (!getConfig().isEnabled() || getPollManager().hasActivePoll()) return;
+        LocalDateTime now = timeProvider.get();
+        if (isTimeWithinScheduledWindow(now)) {
+            createWeeklyPoll();
+        }
+    }
+
+    private boolean isTimeWithinScheduledWindow(LocalDateTime now) {
+        WeeklyPollConfig config = getConfig();
+        LocalDateTime thisWeekScheduledTime = now.with(config.getDayOfWeek())
+            .withHour(config.getStartTime().getHour())
+            .withMinute(config.getStartTime().getMinute())
+            .withSecond(config.getStartTime().getSecond())
+            .withNano(0);
+        LocalDateTime windowStart = thisWeekScheduledTime;
+        LocalDateTime windowEnd = thisWeekScheduledTime.plus(randomWindow);
+        return (now.isAfter(windowStart) || now.isEqual(windowStart))
+            && (now.isBefore(windowEnd) || now.isEqual(windowEnd));
     }
 
     private void scheduleNextPoll() {
@@ -97,6 +111,10 @@ public class WeeklyPollScheduler implements Serializable {
         LocalDateTime now = timeProvider.get();
         LocalDateTime nextPollTime = calculateNextPollTime(now);
         long delaySeconds = java.time.temporal.ChronoUnit.SECONDS.between(now, nextPollTime);
+        if (delaySeconds <= 0) {
+            runScheduledPollCheck();
+            return;
+        }
         scheduler.schedule(() -> {
             try {
                 runScheduledPollCheck();
@@ -108,23 +126,22 @@ public class WeeklyPollScheduler implements Serializable {
     }
 
     public LocalDateTime calculateNextPollTime(LocalDateTime from, LocalDateTime exactStartTime, Duration randomWindow,
-        int totalSegments, int selectedSegment) {
+        double randomFactor) {
         LocalDateTime candidate = exactStartTime;
         if (candidate.isBefore(from) || candidate.isEqual(from)) candidate = candidate.plusWeeks(1);
         long windowMillis = randomWindow.toMillis();
-        long segmentMillis = windowMillis / totalSegments;
-        long randomOffsetMillis = selectedSegment * segmentMillis;
+        long randomOffsetMillis = (long) (randomFactor * windowMillis);
         return candidate.plus(randomOffsetMillis, java.time.temporal.ChronoUnit.MILLIS);
     }
 
     public LocalDateTime calculateNextPollTime(LocalDateTime from, java.time.DayOfWeek dayOfWeek,
-        java.time.LocalTime startTime, Duration randomWindow, int totalSegments, int selectedSegment) {
+        java.time.LocalTime startTime, Duration randomWindow, double randomFactor) {
         LocalDateTime candidate = from.with(dayOfWeek)
             .withHour(startTime.getHour())
             .withMinute(startTime.getMinute())
             .withSecond(startTime.getSecond())
             .withNano(0);
-        return calculateNextPollTime(from, candidate, randomWindow, totalSegments, selectedSegment);
+        return calculateNextPollTime(from, candidate, randomWindow, randomFactor);
     }
 
     public LocalDateTime calculateNextPollTime(LocalDateTime from) {
@@ -133,14 +150,12 @@ public class WeeklyPollScheduler implements Serializable {
             config.getDayOfWeek(),
             config.getStartTime(),
             randomWindow,
-            totalRandomSegments,
-            getRandomSegmentProvider().get());
+            getRandomProvider().get());
     }
 
-    private Supplier<Integer> getRandomSegmentProvider() {
-        if (randomSegmentProvider == null)
-            randomSegmentProvider = () -> ThreadLocalRandom.current().nextInt(0, totalRandomSegments);
-        return randomSegmentProvider;
+    private Supplier<Double> getRandomProvider() {
+        if (randomProvider == null) randomProvider = () -> ThreadLocalRandom.current().nextDouble();
+        return randomProvider;
     }
 
     private void createWeeklyPoll() {
@@ -159,7 +174,7 @@ public class WeeklyPollScheduler implements Serializable {
     private void readObject(java.io.ObjectInputStream in) throws java.io.IOException, ClassNotFoundException {
         in.defaultReadObject();
         scheduler = Executors.newScheduledThreadPool(1);
-        randomSegmentProvider = () -> ThreadLocalRandom.current().nextInt(0, totalRandomSegments);
+        randomProvider = () -> ThreadLocalRandom.current().nextDouble();
         timeProvider = () -> LocalDateTime.now();
     }
 }

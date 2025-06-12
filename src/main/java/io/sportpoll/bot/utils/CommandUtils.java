@@ -30,23 +30,18 @@ public class CommandUtils {
 
     private static String normalizeCommand(String messageText) {
         String trimmed = messageText.trim();
-
         if (trimmed.matches("/\\+\\d+")) {
             return trimmed.replaceFirst("(\\+)(\\d+)", "$1 $2");
         }
-
         if (trimmed.matches("/-\\d+")) {
             return trimmed.replaceFirst("(-)(\\d+)", "$1 $2");
         }
-
         if (trimmed.matches("/\\+[A-Za-z].*")) {
             return trimmed.replaceFirst("(\\+)([A-Za-z])", "$1 $2");
         }
-
         if (trimmed.matches("/-[A-Za-z].*")) {
             return trimmed.replaceFirst("(-)([A-Za-z])", "$1 $2");
         }
-
         return trimmed;
     }
 }

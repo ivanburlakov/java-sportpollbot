@@ -5,6 +5,9 @@ import io.sportpoll.bot.ui.Pages;
 import io.sportpoll.bot.commands.PollCommand;
 import io.sportpoll.bot.config.WeeklyPollConfig;
 import io.sportpoll.bot.utils.ExceptionHandler;
+import io.sportpoll.bot.utils.MessageUtils;
+import io.sportpoll.bot.constants.Messages;
+import io.sportpoll.bot.constants.UIText;
 
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
@@ -35,13 +38,11 @@ public class AdminSession {
     }
 
     private enum EditTarget {
-        QUESTION("📝 Введіть нове питання:"), POSITIVE("✅ Введіть новий варіант \"за\":"),
-        NEGATIVE("❌ Введіть новий варіант \"проти\":"), VOTES("🎯 Введіть нову ціль голосів:"),
-        WEEKLY_QUESTION("📝 Введіть нове тижневе питання:"),
-        WEEKLY_POSITIVE("✅ Введіть новий тижневий варіант \"за\":"),
-        WEEKLY_NEGATIVE("❌ Введіть новий тижневий варіант \"проти\":"),
-        WEEKLY_VOTES("🎯 Введіть нову тижневу ціль голосів:"), WEEKLY_DAY("📅 Виберіть день тижня (1-7):"),
-        WEEKLY_TIME("⏰ Введіть час (ГГ:ХХ):");
+        QUESTION(UIText.PROMPT_EDIT_QUESTION), POSITIVE(UIText.PROMPT_EDIT_POSITIVE),
+        NEGATIVE(UIText.PROMPT_EDIT_NEGATIVE), VOTES(UIText.PROMPT_EDIT_VOTES),
+        WEEKLY_QUESTION(UIText.PROMPT_WEEKLY_QUESTION), WEEKLY_POSITIVE(UIText.PROMPT_WEEKLY_POSITIVE),
+        WEEKLY_NEGATIVE(UIText.PROMPT_WEEKLY_NEGATIVE), WEEKLY_VOTES(UIText.PROMPT_WEEKLY_VOTES),
+        WEEKLY_DAY(UIText.PROMPT_WEEKLY_DAY), WEEKLY_TIME(UIText.PROMPT_WEEKLY_TIME);
 
         private final String prompt;
 
@@ -103,15 +104,7 @@ public class AdminSession {
 
     private void showWeeklyMenu(Update update) {
         var config = weeklyScheduler.getConfig();
-        String dayShort = switch (config.getDayOfWeek()) {
-            case MONDAY -> "Пн";
-            case TUESDAY -> "Вт";
-            case WEDNESDAY -> "Ср";
-            case THURSDAY -> "Чт";
-            case FRIDAY -> "Пт";
-            case SATURDAY -> "Сб";
-            case SUNDAY -> "Нд";
-        };
+        String dayShort = UIText.getDayShort(config.getDayOfWeek().name());
         String timeStr = String.format("%02d:00", config.getStartTime().getHour());
         String text = Pages.WeeklySettingsPage.getText(config.getQuestion(),
             config.getPositiveOption(),
@@ -124,6 +117,9 @@ public class AdminSession {
     }
 
     private void handleCallback(String callbackData, Update update) throws TelegramApiException {
+        if (update.hasCallbackQuery() && update.getCallbackQuery().getMessage() != null) {
+            lastMenuMessageId = update.getCallbackQuery().getMessage().getMessageId();
+        }
         String[] parts = callbackData.split(":");
         switch (parts[0]) {
             case "main" -> {
@@ -132,8 +128,17 @@ public class AdminSession {
                     case "weekly" -> showWeeklyMenu(update);
                     case "menu" -> showMainMenu(update);
                     case "close" -> {
-                        pollManager.closeCurrentPoll(update);
-                        showMainMenu(update);
+                        try {
+                            boolean wasClosed = pollManager.closeCurrentPollSilent();
+                            if (wasClosed) {
+                                MessageUtils.acknowledgeCallback(update, Messages.POLL_CLOSED);
+                                showMainMenu(update);
+                            } else {
+                                MessageUtils.acknowledgeCallback(update, Messages.NO_ACTIVE_POLL);
+                            }
+                        } catch (Exception e) {
+                            MessageUtils.acknowledgeCallback(update, "Error closing poll");
+                        }
                     }
                 }
             }
@@ -282,7 +287,7 @@ public class AdminSession {
                 }
                 case WEEKLY_DAY -> {
                     int day = Integer.parseInt(newValue);
-                    if (day < 1 || day > 7) throw new IllegalArgumentException("Day must be between 1 and 7");
+                    if (day < 1 || day > 7) throw new IllegalArgumentException(UIText.ERROR_DAY_RANGE);
                     var config = weeklyScheduler.getConfig();
                     config.setDayOfWeek(day);
                     weeklyScheduler.updateConfig(config);
@@ -291,7 +296,7 @@ public class AdminSession {
                 }
                 case WEEKLY_TIME -> {
                     int hour = Integer.parseInt(newValue);
-                    if (hour < 0 || hour > 23) throw new IllegalArgumentException("Hour must be between 0 and 23");
+                    if (hour < 0 || hour > 23) throw new IllegalArgumentException(UIText.ERROR_HOUR_RANGE);
                     var config = weeklyScheduler.getConfig();
                     config.setStartTime(java.time.LocalTime.of(hour, 0));
                     weeklyScheduler.updateConfig(config);
@@ -343,23 +348,20 @@ public class AdminSession {
                 }
             }
         } catch (TelegramApiException e) {
-            System.err.println("Failed to send page: " + e.getMessage());
-            if (lastMenuMessageId != null) {
-                lastMenuMessageId = null;
-                try {
-                    var sendMessage = SendMessage.builder()
-                        .chatId(String.valueOf(chatId))
-                        .text(text)
-                        .parseMode("HTML")
-                        .replyMarkup(keyboard)
-                        .build();
-                    var sentMessage = telegramClient.execute(sendMessage);
-                    if (sentMessage != null) {
-                        lastMenuMessageId = sentMessage.getMessageId();
-                    }
-                } catch (TelegramApiException fallbackException) {
-                    System.err.println("Fallback send also failed: " + fallbackException.getMessage());
+            lastMenuMessageId = null;
+            try {
+                var sendMessage = SendMessage.builder()
+                    .chatId(String.valueOf(chatId))
+                    .text(text)
+                    .parseMode("HTML")
+                    .replyMarkup(keyboard)
+                    .build();
+                var sentMessage = telegramClient.execute(sendMessage);
+                if (sentMessage != null) {
+                    lastMenuMessageId = sentMessage.getMessageId();
                 }
+            } catch (TelegramApiException fallbackException) {
+                System.err.println("Failed to send message: " + fallbackException.getMessage());
             }
         }
     }

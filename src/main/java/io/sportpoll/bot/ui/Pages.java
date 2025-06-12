@@ -3,6 +3,7 @@ package io.sportpoll.bot.ui;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardRow;
+import io.sportpoll.bot.constants.UIText;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -12,15 +13,15 @@ public class Pages {
             return String.format("""
                 %s
 
-                Поточне значення: %s
+                %s
 
-                Введіть нове значення:""", title, currentValue);
+                %s""", title, String.format(UIText.EDIT_CURRENT_VALUE, currentValue), UIText.EDIT_ENTER_NEW_VALUE);
         }
 
         public static InlineKeyboardMarkup getKeyboard(String backTarget) {
             List<InlineKeyboardRow> rows = new ArrayList<>();
             InlineKeyboardRow row = new InlineKeyboardRow();
-            row.add(InlineKeyboardButton.builder().text("❌ Скасувати").callbackData(backTarget).build());
+            row.add(InlineKeyboardButton.builder().text(UIText.BUTTON_CANCEL).callbackData(backTarget).build());
             rows.add(row);
             return InlineKeyboardMarkup.builder().keyboard(rows).build();
         }
@@ -28,18 +29,19 @@ public class Pages {
 
     public static class MainMenuPage {
         public static String getText(boolean hasActivePoll) {
-            return "🤖 <b>Адміністрування SportPoll Bot</b>\n\nВиберіть опцію:";
+            return UIText.MAIN_MENU_TITLE;
         }
 
         public static InlineKeyboardMarkup getKeyboard(boolean hasActivePoll) {
             List<InlineKeyboardRow> rows = new ArrayList<>();
             InlineKeyboardRow row1 = new InlineKeyboardRow();
-            row1.add(InlineKeyboardButton.builder().text("📊 Створити опитування").callbackData("main:create").build());
-            row1.add(InlineKeyboardButton.builder().text("❌ Закрити опитування").callbackData("main:close").build());
+            row1.add(
+                InlineKeyboardButton.builder().text(UIText.BUTTON_CREATE_POLL).callbackData("main:create").build());
+            row1.add(InlineKeyboardButton.builder().text(UIText.BUTTON_CLOSE_POLL).callbackData("main:close").build());
             rows.add(row1);
             InlineKeyboardRow row2 = new InlineKeyboardRow();
             row2.add(
-                InlineKeyboardButton.builder().text("⚙️ Тижневі налаштування").callbackData("main:weekly").build());
+                InlineKeyboardButton.builder().text(UIText.BUTTON_WEEKLY_SETTINGS).callbackData("main:weekly").build());
             rows.add(row2);
             return InlineKeyboardMarkup.builder().keyboard(rows).build();
         }
@@ -47,37 +49,39 @@ public class Pages {
 
     public static class CreatePollPage {
         public static String getText(String question, String positive, String negative, int votes) {
-            return String.format("""
-                📊 <b>Створення опитування</b>
-
-                📝 Питання: %s
-                ✅ За: %s
-                ❌ Проти: %s
-                🎯 Ціль: %d голосів""", question, positive, negative, votes);
+            return String
+                .format(UIText.CREATE_POLL_TEMPLATE, UIText.CREATE_POLL_TITLE, question, positive, negative, votes);
         }
 
         public static InlineKeyboardMarkup getKeyboard() {
             List<InlineKeyboardRow> rows = new ArrayList<>();
 
             InlineKeyboardRow row1 = new InlineKeyboardRow();
-            row1.add(
-                InlineKeyboardButton.builder().text("📝 Змінити питання").callbackData("poll:edit:question").build());
+            row1.add(InlineKeyboardButton.builder()
+                .text(UIText.BUTTON_EDIT_QUESTION)
+                .callbackData("poll:edit:question")
+                .build());
             rows.add(row1);
 
             InlineKeyboardRow row2 = new InlineKeyboardRow();
-            row2.add(
-                InlineKeyboardButton.builder().text("✅ Змінити \"за\"").callbackData("poll:edit:positive").build());
-            row2.add(
-                InlineKeyboardButton.builder().text("❌ Змінити \"проти\"").callbackData("poll:edit:negative").build());
+            row2.add(InlineKeyboardButton.builder()
+                .text(UIText.BUTTON_EDIT_POSITIVE)
+                .callbackData("poll:edit:positive")
+                .build());
+            row2.add(InlineKeyboardButton.builder()
+                .text(UIText.BUTTON_EDIT_NEGATIVE)
+                .callbackData("poll:edit:negative")
+                .build());
             rows.add(row2);
 
             InlineKeyboardRow row3 = new InlineKeyboardRow();
-            row3.add(InlineKeyboardButton.builder().text("🎯 Змінити ціль").callbackData("poll:edit:votes").build());
+            row3.add(
+                InlineKeyboardButton.builder().text(UIText.BUTTON_EDIT_TARGET).callbackData("poll:edit:votes").build());
             rows.add(row3);
 
             InlineKeyboardRow row4 = new InlineKeyboardRow();
-            row4.add(InlineKeyboardButton.builder().text("✅ Створити").callbackData("poll:confirm").build());
-            row4.add(InlineKeyboardButton.builder().text("❌ Скасувати").callbackData("main:menu").build());
+            row4.add(InlineKeyboardButton.builder().text(UIText.BUTTON_CREATE).callbackData("poll:confirm").build());
+            row4.add(InlineKeyboardButton.builder().text(UIText.BUTTON_CANCEL).callbackData("main:menu").build());
             rows.add(row4);
 
             return InlineKeyboardMarkup.builder().keyboard(rows).build();
@@ -87,71 +91,64 @@ public class Pages {
     public static class WeeklySettingsPage {
         public static String getText(String question, String positive, String negative, int votes, String time,
             String day, boolean enabled) {
-            String dayShort = switch (day) {
-                case "MONDAY" -> "Пн";
-                case "TUESDAY" -> "Вт";
-                case "WEDNESDAY" -> "Ср";
-                case "THURSDAY" -> "Чт";
-                case "FRIDAY" -> "Пт";
-                case "SATURDAY" -> "Сб";
-                case "SUNDAY" -> "Нд";
-                default -> day;
-            };
-            String timeStr = "з " + time.substring(0, 5);
-            return String.format("""
-                ⚙️ <b>Тижневі налаштування</b>
-
-                📝 Питання: %s
-                ✅ За: %s
-                ❌ Проти: %s
-                🎯 Ціль: %d голосів
-                ⏰ Час: %s
-                📅 День: %s
-                🔄 Статус: %s""",
+            String dayShort = UIText.getDayShort(day);
+            String timeStr = UIText.WEEKLY_TIME_PREFIX + time.substring(0, 5);
+            String status = enabled ? UIText.WEEKLY_STATUS_ENABLED : UIText.WEEKLY_STATUS_DISABLED;
+            return String.format(UIText.WEEKLY_SETTINGS_TEMPLATE,
+                UIText.WEEKLY_SETTINGS_TITLE,
                 question,
                 positive,
                 negative,
                 votes,
                 timeStr,
                 dayShort,
-                enabled ? "Увімкнено" : "Вимкнено");
+                status);
         }
 
         public static InlineKeyboardMarkup getKeyboard(boolean enabled) {
             List<InlineKeyboardRow> rows = new ArrayList<>();
             rows.add(new InlineKeyboardRow(List.of(InlineKeyboardButton.builder()
-                .text("📝 Змінити питання")
+                .text(UIText.BUTTON_EDIT_QUESTION)
                 .callbackData("weekly:config:question")
                 .build())));
             rows.add(new InlineKeyboardRow(List.of(
-                InlineKeyboardButton.builder().text("✅ Змінити \"за\"").callbackData("weekly:config:positive").build(),
                 InlineKeyboardButton.builder()
-                    .text("❌ Змінити \"проти\"")
+                    .text(UIText.BUTTON_EDIT_POSITIVE)
+                    .callbackData("weekly:config:positive")
+                    .build(),
+                InlineKeyboardButton.builder()
+                    .text(UIText.BUTTON_EDIT_NEGATIVE)
                     .callbackData("weekly:config:negative")
                     .build())));
-            rows.add(new InlineKeyboardRow(List.of(
-                InlineKeyboardButton.builder().text("🎯 Змінити ціль").callbackData("weekly:config:votes").build())));
-            rows.add(new InlineKeyboardRow(
-                List.of(InlineKeyboardButton.builder().text("📅 День").callbackData("weekly:config:day").build(),
-                    InlineKeyboardButton.builder().text("⏰ Час").callbackData("weekly:config:time").build())));
             rows.add(new InlineKeyboardRow(List.of(InlineKeyboardButton.builder()
-                .text(enabled ? "🔴 Вимкнути" : "🟢 Увімкнути")
+                .text(UIText.BUTTON_EDIT_TARGET)
+                .callbackData("weekly:config:votes")
+                .build())));
+            rows.add(new InlineKeyboardRow(List.of(
+                InlineKeyboardButton.builder().text(UIText.BUTTON_WEEKLY_DAY).callbackData("weekly:config:day").build(),
+                InlineKeyboardButton.builder()
+                    .text(UIText.BUTTON_WEEKLY_TIME)
+                    .callbackData("weekly:config:time")
+                    .build())));
+            rows.add(new InlineKeyboardRow(List.of(InlineKeyboardButton.builder()
+                .text(enabled ? UIText.BUTTON_TOGGLE_DISABLE : UIText.BUTTON_TOGGLE_ENABLE)
                 .callbackData("weekly:config:toggle")
                 .build())));
             rows.add(new InlineKeyboardRow(
-                List.of(InlineKeyboardButton.builder().text("◀️ Назад").callbackData("main:menu").build())));
+                List.of(InlineKeyboardButton.builder().text(UIText.BUTTON_BACK).callbackData("main:menu").build())));
             return InlineKeyboardMarkup.builder().keyboard(rows).build();
         }
     }
 
     public static class WeeklyDayPage {
         public static String getText() {
-            return "Оберіть день тижня для опитування:";
+            return UIText.WEEKLY_DAY_TITLE;
         }
 
         public static InlineKeyboardMarkup getKeyboard() {
             List<InlineKeyboardRow> rows = new ArrayList<>();
-            String[] days = { "Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд" };
+            String[] days = { UIText.DAY_MONDAY, UIText.DAY_TUESDAY, UIText.DAY_WEDNESDAY, UIText.DAY_THURSDAY,
+                    UIText.DAY_FRIDAY, UIText.DAY_SATURDAY, UIText.DAY_SUNDAY };
             for (int i = 0; i < 7; i++) {
                 String d = days[i];
                 String cb = "weekly:day:" + (i + 1);
@@ -159,20 +156,20 @@ public class Pages {
                     new InlineKeyboardRow(List.of(InlineKeyboardButton.builder().text(d).callbackData(cb).build())));
             }
             rows.add(new InlineKeyboardRow(
-                List.of(InlineKeyboardButton.builder().text("◀️ Назад").callbackData("weekly:menu").build())));
+                List.of(InlineKeyboardButton.builder().text(UIText.BUTTON_BACK).callbackData("weekly:menu").build())));
             return InlineKeyboardMarkup.builder().keyboard(rows).build();
         }
     }
 
     public static class WeeklyTimePage {
         public static String getText() {
-            return "Введіть годину початку опитування (0-23, у 24-годинному форматі, наприклад: 13):";
+            return UIText.WEEKLY_TIME_TITLE;
         }
 
         public static InlineKeyboardMarkup getKeyboard() {
             List<InlineKeyboardRow> rows = new ArrayList<>();
             rows.add(new InlineKeyboardRow(
-                List.of(InlineKeyboardButton.builder().text("◀️ Назад").callbackData("weekly:menu").build())));
+                List.of(InlineKeyboardButton.builder().text(UIText.BUTTON_BACK).callbackData("weekly:menu").build())));
             return InlineKeyboardMarkup.builder().keyboard(rows).build();
         }
     }

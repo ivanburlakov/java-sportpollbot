@@ -1,15 +1,21 @@
 package io.sportpoll.bot.unit.persistence;
 
-import org.junit.jupiter.api.BeforeEach;
+import java.io.File;
+import java.io.Serializable;
+
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+
 import io.sportpoll.bot.config.Config;
 import io.sportpoll.bot.persistance.DataStore;
 import io.sportpoll.bot.unit.utils.TestUtils;
-import java.io.File;
-import java.io.Serializable;
-import static org.junit.jupiter.api.Assertions.*;
+
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 
 public class DataStoreTest {
 

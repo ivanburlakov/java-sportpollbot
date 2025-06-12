@@ -3,6 +3,7 @@ package io.sportpoll.bot.config;
 import java.io.Serializable;
 import java.time.DayOfWeek;
 import java.time.LocalTime;
+import io.sportpoll.bot.constants.UIText;
 
 public class WeeklyPollConfig implements Serializable {
     private String question;
@@ -14,10 +15,10 @@ public class WeeklyPollConfig implements Serializable {
     private boolean enabled;
 
     public WeeklyPollConfig() {
-        this.question = "В четвер в 20:00 де завжди?";
-        this.positiveOption = "Так, граю!";
-        this.negativeOption = "Ні, не можу";
-        this.targetVotes = 12;
+        this.question = UIText.DEFAULT_WEEKLY_QUESTION;
+        this.positiveOption = UIText.DEFAULT_POSITIVE_OPTION;
+        this.negativeOption = UIText.DEFAULT_NEGATIVE_OPTION;
+        this.targetVotes = UIText.DEFAULT_TARGET_VOTES;
         this.dayOfWeek = DayOfWeek.THURSDAY;
         this.startTime = LocalTime.of(13, 0);
         this.enabled = true;
@@ -80,17 +81,17 @@ public class WeeklyPollConfig implements Serializable {
     }
 
     public void setDayOfWeek(int day) {
-        if (day < 1 || day > 7) throw new IllegalArgumentException("День повинен бути від 1 до 7");
+        if (day < 1 || day > 7) throw new IllegalArgumentException(UIText.ERROR_DAY_RANGE);
         setDayOfWeek(DayOfWeek.of(day));
     }
 
     public void setStartTime(String time) {
         String[] parts = time.split(":");
-        if (parts.length != 2) throw new IllegalArgumentException("Час повинен бути в форматі ГГ:ХХ");
+        if (parts.length != 2) throw new IllegalArgumentException(UIText.ERROR_TIME_FORMAT);
         int hours = Integer.parseInt(parts[0]);
         int minutes = Integer.parseInt(parts[1]);
-        if (hours < 0 || hours > 23) throw new IllegalArgumentException("Години повинні бути від 0 до 23");
-        if (minutes < 0 || minutes > 59) throw new IllegalArgumentException("Хвилини повинні бути від 0 до 59");
+        if (hours < 0 || hours > 23) throw new IllegalArgumentException(UIText.ERROR_HOUR_RANGE);
+        if (minutes < 0 || minutes > 59) throw new IllegalArgumentException(UIText.ERROR_MINUTE_RANGE);
         setStartTime(LocalTime.of(hours, minutes));
     }
 }

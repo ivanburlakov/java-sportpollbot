@@ -73,6 +73,15 @@ public class SportPollBot extends AbilityBot {
             dataDir.mkdirs();
         }
 
+        if (!dataDir.canWrite()) {
+            String tempDir = System.getProperty("java.io.tmpdir") + File.separator + "sportpoll-db";
+            File tempDataDir = new File(tempDir);
+            if (!tempDataDir.exists()) {
+                tempDataDir.mkdirs();
+            }
+            return tempDataDir.getAbsolutePath();
+        }
+
         return dataDir.getAbsolutePath();
     }
 

@@ -162,6 +162,15 @@ public class PollManager implements Serializable {
         MessageUtils.acknowledgeCallback(update, Messages.POLL_CLOSED);
     }
 
+    public boolean closeCurrentPollSilent() throws TelegramApiException {
+        if (!isActive) {
+            return false;
+        }
+        closeDirectPoll();
+        resetPoll();
+        return true;
+    }
+
     public void checkMondayClose() throws TelegramApiException {
         if (isActive) {
             closeDirectPoll();

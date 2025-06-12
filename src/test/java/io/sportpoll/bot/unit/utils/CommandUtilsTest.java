@@ -1,8 +1,13 @@
 package io.sportpoll.bot.unit.utils;
 
-import io.sportpoll.bot.utils.CommandUtils;
 import org.junit.jupiter.api.Test;
-import static org.junit.jupiter.api.Assertions.*;
+
+import io.sportpoll.bot.utils.CommandUtils;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class CommandUtilsTest {
 

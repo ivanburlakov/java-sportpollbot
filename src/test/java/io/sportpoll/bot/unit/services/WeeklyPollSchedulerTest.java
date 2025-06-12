@@ -4,12 +4,20 @@ import io.sportpoll.bot.config.Config;
 import io.sportpoll.bot.config.WeeklyPollConfig;
 import io.sportpoll.bot.persistance.DataStore;
 import io.sportpoll.bot.services.PollManager;
+import io.sportpoll.bot.services.TelegramClientService;
 import io.sportpoll.bot.services.WeeklyPollScheduler;
 import io.sportpoll.bot.unit.utils.TestUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.AfterEach;
 import org.mockito.MockedStatic;
+import org.telegram.telegrambots.meta.api.methods.pinnedmessages.PinChatMessage;
+import org.telegram.telegrambots.meta.api.methods.polls.SendPoll;
+import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.objects.message.Message;
+import org.telegram.telegrambots.meta.api.objects.Update;
+import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
+import org.telegram.telegrambots.meta.generics.TelegramClient;
 
 import java.time.DayOfWeek;
 import java.time.Duration;
@@ -17,16 +25,18 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
+/**
+ * Simplified tests for WeeklyPollScheduler focusing on: 1. Window-based timing
+ * (1 second before/after planned time) 2. Monday reset and reschedule scenarios
+ */
 class WeeklyPollSchedulerTest {
     private WeeklyPollConfig config;
-    private PollManager pollManager;
     private WeeklyPollScheduler scheduler;
     private AtomicReference<LocalDateTime> currentTime;
     private ScheduledExecutorService testExecutor;
@@ -35,9 +45,7 @@ class WeeklyPollSchedulerTest {
     void setUp() {
         Config.setInstance(TestUtils.createTestConfig());
         config = mock(WeeklyPollConfig.class);
-        pollManager = mock(PollManager.class);
         currentTime = new AtomicReference<>(LocalDateTime.of(2024, 6, 10, 12, 0)); // Monday 12:00
-        new AtomicInteger(0);
         testExecutor = Executors.newScheduledThreadPool(2);
 
         when(config.getQuestion()).thenReturn("Weekly test question?");
@@ -47,213 +55,129 @@ class WeeklyPollSchedulerTest {
         when(config.getDayOfWeek()).thenReturn(DayOfWeek.MONDAY);
         when(config.getStartTime()).thenReturn(LocalTime.of(14, 0));
         when(config.isEnabled()).thenReturn(true);
-        when(pollManager.hasActivePoll()).thenReturn(false);
     }
 
     @AfterEach
     void tearDown() {
         if (testExecutor != null && !testExecutor.isShutdown()) {
-            testExecutor.shutdownNow();
+            testExecutor.shutdown();
         }
     }
 
     @Test
-    void testSchedulingFiresImmediatelyWhenTimeMatches() throws InterruptedException {
-        // Set time just before scheduled poll time
-        LocalDateTime pollTime = LocalDateTime.of(2024, 6, 10, 14, 0); // Monday 14:00
-        currentTime.set(pollTime.minusSeconds(1)); // Just before poll time
-        // Configure time and randomness providers
-        Supplier<LocalDateTime> timeProvider = currentTime::get;
-        Supplier<Integer> randomProvider = () -> 0; // No randomness
-        // Initialize scheduler with minimal random window
-        scheduler = new WeeklyPollScheduler(config, pollManager, timeProvider, randomProvider, testExecutor);
-        scheduler.setRandomWindow(Duration.ofMillis(100));
-        scheduler.setTotalRandomSegments(1);
+    void testWindowTimingOneSecondBefore() throws TelegramApiException {
+        PollManager realPollManager = new PollManager(-1001234567890L);
+        LocalDateTime scheduledTime = LocalDateTime.of(2024, 6, 10, 14, 0);
+        LocalDateTime oneSecondBefore = scheduledTime.minusSeconds(1);
+        currentTime.set(oneSecondBefore);
 
-        try (MockedStatic<DataStore> mockedDataStore = mockStatic(DataStore.class)) {
-            // Mock data store for poll manager access
-            DataStore dataStore = mock(DataStore.class);
-            mockedDataStore.when(DataStore::getInstance).thenReturn(dataStore);
-            when(dataStore.get(PollManager.class)).thenReturn(pollManager);
-            // Initialize scheduler
-            scheduler.initialize();
-            // Advance time to exactly the poll time
-            currentTime.set(pollTime);
-            // Verify scheduled check runs without errors
-            assertDoesNotThrow(() -> scheduler.runScheduledPollCheck());
-        }
-    }
+        scheduler = new WeeklyPollScheduler(config, realPollManager, currentTime::get, () -> 0.0, testExecutor);
+        scheduler.setRandomWindow(Duration.ofMinutes(5)); // 5-minute window
 
-    @Test
-    void testMondayResetSchedulingNextWeek() throws InterruptedException {
-        // Start on Wednesday - poll should schedule for next Monday
-        LocalDateTime wednesday = LocalDateTime.of(2024, 6, 12, 16, 0); // Wednesday 16:00
-        currentTime.set(wednesday);
-        // Setup time and randomness providers
-        Supplier<LocalDateTime> timeProvider = currentTime::get;
-        Supplier<Integer> randomProvider = () -> 0;
-        // Create scheduler with Wednesday start time
-        scheduler = new WeeklyPollScheduler(config, pollManager, timeProvider, randomProvider, testExecutor);
-        scheduler.setRandomWindow(Duration.ofMillis(50));
-        scheduler.setTotalRandomSegments(1);
+        try (MockedStatic<DataStore> mockedDataStore = mockStatic(DataStore.class);
+            MockedStatic<TelegramClientService> mockedTelegram = mockStatic(TelegramClientService.class)) {
 
-        try (MockedStatic<DataStore> mockedDataStore = mockStatic(DataStore.class)) {
-            // Mock data store for scheduler initialization
-            DataStore dataStore = mock(DataStore.class);
-            mockedDataStore.when(DataStore::getInstance).thenReturn(dataStore);
-            when(dataStore.get(PollManager.class)).thenReturn(pollManager);
-            // Initialize scheduler
-            scheduler.initialize();
-            // Verify next poll time calculation for Wednesday start
-            LocalDateTime nextPollTime = scheduler.calculateNextPollTime(wednesday);
-            assertEquals(DayOfWeek.MONDAY, nextPollTime.getDayOfWeek());
-            assertTrue(nextPollTime.isAfter(wednesday));
-            assertEquals(LocalTime.of(14, 0), nextPollTime.toLocalTime());
-            // Jump to next Monday at poll time
-            LocalDateTime nextMonday = LocalDateTime.of(2024, 6, 17, 14, 0);
-            currentTime.set(nextMonday);
-            // Verify scheduler runs without errors at next poll time
-            assertDoesNotThrow(() -> scheduler.runScheduledPollCheck());
-        }
-    }
+            setupMocks(mockedDataStore, mockedTelegram, realPollManager);
 
-    @Test
-    void testNoPollingWhenAlreadyActivePolls() throws InterruptedException {
-        // Configure poll manager to indicate active poll exists
-        when(pollManager.hasActivePoll()).thenReturn(true);
-        // Set time to exactly poll scheduled time
-        LocalDateTime pollTime = LocalDateTime.of(2024, 6, 10, 14, 0);
-        currentTime.set(pollTime);
-        // Setup time and randomness providers
-        Supplier<LocalDateTime> timeProvider = currentTime::get;
-        Supplier<Integer> randomProvider = () -> 0;
-        // Create scheduler with minimal random window
-        scheduler = new WeeklyPollScheduler(config, pollManager, timeProvider, randomProvider, testExecutor);
-        scheduler.setRandomWindow(Duration.ofMillis(50));
-
-        try (MockedStatic<DataStore> mockedDataStore = mockStatic(DataStore.class)) {
-            // Mock data store access
-            DataStore dataStore = mock(DataStore.class);
-            mockedDataStore.when(DataStore::getInstance).thenReturn(dataStore);
-            when(dataStore.get(PollManager.class)).thenReturn(pollManager);
-            // Initialize and run scheduled check
             scheduler.initialize();
             scheduler.runScheduledPollCheck();
-            // Allow time for any potential scheduling
-            Thread.sleep(100);
 
-            // Since PollManager doesn't have createPoll method, we check hasActivePoll
-            // wasn't called
+            // Should NOT create poll - 1 second before window start
+            assertFalse(realPollManager.hasActivePoll());
         }
     }
 
     @Test
-    void testDisabledSchedulerDoesNotCreatePolls() throws InterruptedException {
-        when(config.isEnabled()).thenReturn(false);
+    void testWindowTimingOneSecondAfter() throws TelegramApiException {
+        PollManager realPollManager = new PollManager(-1001234567890L);
+        LocalDateTime scheduledTime = LocalDateTime.of(2024, 6, 10, 14, 0);
+        LocalDateTime oneSecondAfter = scheduledTime.plusSeconds(1);
+        currentTime.set(oneSecondAfter);
 
+        scheduler = new WeeklyPollScheduler(config, realPollManager, currentTime::get, () -> 0.0, testExecutor);
+        scheduler.setRandomWindow(Duration.ofMinutes(5)); // 5-minute window
+
+        try (MockedStatic<DataStore> mockedDataStore = mockStatic(DataStore.class);
+            MockedStatic<TelegramClientService> mockedTelegram = mockStatic(TelegramClientService.class)) {
+
+            setupMocks(mockedDataStore, mockedTelegram, realPollManager);
+
+            scheduler.initialize();
+            scheduler.runScheduledPollCheck();
+
+            // Should create poll - 1 second after window start
+            assertTrue(realPollManager.hasActivePoll());
+        }
+    }
+
+    @Test
+    void testMondayResetAndReschedule() throws TelegramApiException {
+        PollManager realPollManager = new PollManager(-1001234567890L);
         LocalDateTime pollTime = LocalDateTime.of(2024, 6, 10, 14, 0);
         currentTime.set(pollTime);
 
-        Supplier<LocalDateTime> timeProvider = currentTime::get;
-        Supplier<Integer> randomProvider = () -> 0;
+        scheduler = new WeeklyPollScheduler(config, realPollManager, currentTime::get, () -> 0.0, testExecutor);
+        scheduler.setRandomWindow(Duration.ofMinutes(5));
 
-        scheduler = new WeeklyPollScheduler(config, pollManager, timeProvider, randomProvider, testExecutor);
+        try (MockedStatic<DataStore> mockedDataStore = mockStatic(DataStore.class);
+            MockedStatic<TelegramClientService> mockedTelegram = mockStatic(TelegramClientService.class)) {
 
-        try (MockedStatic<DataStore> mockedDataStore = mockStatic(DataStore.class)) {
-            DataStore dataStore = mock(DataStore.class);
-            mockedDataStore.when(DataStore::getInstance).thenReturn(dataStore);
-            when(dataStore.get(PollManager.class)).thenReturn(pollManager);
+            setupMocks(mockedDataStore, mockedTelegram, realPollManager);
 
+            // Create initial poll
+            Update createUpdate = TestUtils.createMockUpdate("test", -1001234567890L, 123456789L);
+            realPollManager.createAndPostPoll("Test Poll", "Yes", "No", 10, createUpdate);
+            assertTrue(realPollManager.hasActivePoll());
+
+            // Execute Monday reset
+            realPollManager.checkMondayClose();
+            assertFalse(realPollManager.hasActivePoll());
+
+            // Scheduler should be able to create new poll for current week
             scheduler.initialize();
             scheduler.runScheduledPollCheck();
-
-            Thread.sleep(100);
-
-            // Since PollManager doesn't have createPoll method, we just verify no
-            // exceptions
+            assertTrue(realPollManager.hasActivePoll());
         }
     }
 
     @Test
-    void testRandomWindowSpreadsPollsOverTime() {
-        LocalDateTime baseTime = LocalDateTime.of(2024, 6, 10, 14, 0);
-        Duration randomWindow = Duration.ofHours(2);
-        int totalSegments = 4;
+    void testConfigChangeTriggersReschedule() {
+        PollManager realPollManager = new PollManager(-1001234567890L);
+        LocalDateTime mondayMorning = LocalDateTime.of(2024, 6, 10, 10, 0);
+        currentTime.set(mondayMorning);
 
-        Supplier<LocalDateTime> timeProvider = () -> baseTime;
+        scheduler = new WeeklyPollScheduler(config, realPollManager, currentTime::get, () -> 0.0, testExecutor);
 
-        // Test different random segments
-        for (int segment = 0; segment < totalSegments; segment++) {
-            int finalSegment = segment;
-            scheduler = new WeeklyPollScheduler(config, pollManager, timeProvider, () -> finalSegment, testExecutor);
-            scheduler.setRandomWindow(randomWindow);
-            scheduler.setTotalRandomSegments(totalSegments);
+        // Initial schedule for Wednesday 16:00
+        when(config.getDayOfWeek()).thenReturn(DayOfWeek.WEDNESDAY);
+        when(config.getStartTime()).thenReturn(LocalTime.of(16, 0));
 
-            LocalDateTime nextPollTime = scheduler.calculateNextPollTime(baseTime.minusHours(1));
+        LocalDateTime initialSchedule = scheduler.calculateNextPollTime(mondayMorning);
+        assertEquals(DayOfWeek.WEDNESDAY, initialSchedule.getDayOfWeek());
+        assertEquals(16, initialSchedule.getHour());
 
-            // Each segment should add 30 minutes (2 hours / 4 segments)
-            long expectedOffsetMinutes = segment * 30;
-            LocalDateTime expectedTime = baseTime.plusMinutes(expectedOffsetMinutes);
+        // Change config to Tuesday 14:00
+        when(config.getDayOfWeek()).thenReturn(DayOfWeek.TUESDAY);
+        when(config.getStartTime()).thenReturn(LocalTime.of(14, 0));
 
-            assertEquals(expectedTime, nextPollTime, "Segment " + segment + " should schedule poll at expected offset");
-        }
+        LocalDateTime rescheduledTime = scheduler.calculateNextPollTime(mondayMorning);
+        assertEquals(DayOfWeek.TUESDAY, rescheduledTime.getDayOfWeek());
+        assertEquals(14, rescheduledTime.getHour());
     }
 
-    @Test
-    void testEnableDisableToggling() throws InterruptedException {
-        when(config.isEnabled()).thenReturn(false);
+    private void setupMocks(MockedStatic<DataStore> mockedDataStore, MockedStatic<TelegramClientService> mockedTelegram,
+        PollManager realPollManager) throws TelegramApiException {
+        DataStore dataStore = mock(DataStore.class);
+        TelegramClient telegramClient = mock(TelegramClient.class);
+        Message mockMessage = mock(Message.class);
 
-        LocalDateTime pollTime = LocalDateTime.of(2024, 6, 10, 14, 0);
-        currentTime.set(pollTime);
-
-        Supplier<LocalDateTime> timeProvider = currentTime::get;
-        scheduler = new WeeklyPollScheduler(config, pollManager, timeProvider, () -> 0, testExecutor);
-
-        try (MockedStatic<DataStore> mockedDataStore = mockStatic(DataStore.class)) {
-            DataStore dataStore = mock(DataStore.class);
-            mockedDataStore.when(DataStore::getInstance).thenReturn(dataStore);
-            when(dataStore.get(PollManager.class)).thenReturn(pollManager);
-            when(dataStore.get(WeeklyPollConfig.class)).thenReturn(config);
-
-            scheduler.initialize();
-
-            // Should not create poll when disabled
-            scheduler.runScheduledPollCheck();
-            // Since PollManager doesn't have createPoll method, we just verify no
-            // exceptions
-
-            // Enable and check
-            when(config.isEnabled()).thenReturn(true);
-            scheduler.setEnabled(true);
-            scheduler.runScheduledPollCheck();
-
-            // The poll creation is handled by PollCommand internally
-        }
-    }
-
-    @Test
-    void testWeeklyRecurringBehavior() {
-        LocalDateTime startTime = LocalDateTime.of(2024, 6, 10, 14, 0); // Monday
-
-        scheduler = new WeeklyPollScheduler(config, pollManager, () -> startTime, () -> 0, testExecutor);
-        scheduler.setRandomWindow(Duration.ofMinutes(1));
-        scheduler.setTotalRandomSegments(1);
-
-        // Calculate next poll times for several weeks
-        LocalDateTime week1 = scheduler.calculateNextPollTime(startTime.minusHours(1));
-        LocalDateTime week2 = scheduler.calculateNextPollTime(startTime.plusDays(1));
-        LocalDateTime week3 = scheduler.calculateNextPollTime(startTime.plusWeeks(1).plusDays(1));
-
-        assertEquals(startTime, week1);
-        assertEquals(startTime.plusWeeks(1), week2);
-        assertEquals(startTime.plusWeeks(2), week3);
-
-        // All should be on Monday at 14:00
-        assertEquals(DayOfWeek.MONDAY, week1.getDayOfWeek());
-        assertEquals(DayOfWeek.MONDAY, week2.getDayOfWeek());
-        assertEquals(DayOfWeek.MONDAY, week3.getDayOfWeek());
-        assertEquals(LocalTime.of(14, 0), week1.toLocalTime());
-        assertEquals(LocalTime.of(14, 0), week2.toLocalTime());
-        assertEquals(LocalTime.of(14, 0), week3.toLocalTime());
+        mockedDataStore.when(DataStore::getInstance).thenReturn(dataStore);
+        mockedTelegram.when(TelegramClientService::getInstance).thenReturn(telegramClient);
+        when(dataStore.get(PollManager.class)).thenReturn(realPollManager);
+        when(dataStore.get(WeeklyPollConfig.class)).thenReturn(config);
+        when(mockMessage.getMessageId()).thenReturn(12345);
+        when(telegramClient.execute(any(SendPoll.class))).thenReturn(mockMessage);
+        when(telegramClient.execute(any(SendMessage.class))).thenReturn(mockMessage);
+        when(telegramClient.execute(any(PinChatMessage.class))).thenReturn(true);
     }
 }
